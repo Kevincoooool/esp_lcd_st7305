@@ -1,0 +1,8 @@
+dependencies:
+  cmake_utilities:
+    version: 0.*
+  idf:
+    version: '>=4.4'
+description: ESP LCD ST7305
+url: https://github.com/Kevincoooool/esp_lcd_st7305
+version: 0.0.1
