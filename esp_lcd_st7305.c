@@ -36,6 +36,9 @@ const char *TAG = "st7305";
 typedef union {
     uint16_t full;
 } st7305_color_t;
+
+bool is_xy_swapped_soft = false;
+
 typedef struct {
     esp_lcd_panel_t base;
     esp_lcd_panel_io_handle_t io;
@@ -261,10 +264,11 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
         return ESP_ERR_NO_MEM;
     }
 
+    memset(temp_buffer, 0, lcd_buf_size);
     memset(lcd_buffer, 0, lcd_buf_size);
     
     // 判断是否需要交换XY
-    bool is_xy_swapped = (st7305->madctl_val & ST7305_MADCTL_MV);
+    bool is_xy_swapped = (st7305->madctl_val & ST7305_MADCTL_MV) || is_xy_swapped_soft;
     
     // 复制并转换数据到lcd_buffer
     const uint8_t *src = (const uint8_t *)color_data;
@@ -275,6 +279,7 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
         // XY交换模式 - 需要重新排列数据
         for (int y = 0; y < st7305->height; y++) {
             for (int x = 0; x < st7305->width; x++) {
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_2_9
                 // 计算源数据中的位置
                 uint16_t src_byte_idx = (y >> 3) * st7305->width + x;
                 uint8_t src_bit_pos = y & 0x07;
@@ -287,6 +292,21 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
                 if (pixel) {
                     lcd_buffer[dst_byte_idx] |= (1 << dst_bit_pos);
                 }
+#elif defined(CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54)
+                // 读取当前(row, col)像素在源数组中的值
+                uint32_t src_byte_idx = x * 25 + (y / 8);  // 25 = 200列/8
+                uint8_t src_bit_pos = y % 8;
+                uint8_t pixel_val = (src[src_byte_idx] >> src_bit_pos) & 0x01;
+
+                // 将像素值写入目标数组对应的位置
+                uint32_t dst_byte_idx = y * 25 + (x / 8);  // 25 = 200行/8
+                uint8_t dst_bit_pos = x % 8;
+                if (pixel_val) {
+                    lcd_buffer[dst_byte_idx] |= (1 << dst_bit_pos);  // 置1
+                } else {
+                    lcd_buffer[dst_byte_idx] &= ~(1 << dst_bit_pos); // 置0
+                }
+#endif
             }
         }
     }
@@ -331,13 +351,51 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
     esp_lcd_panel_io_tx_param(io, ST7305_CMD_RASET, raset, sizeof(raset));
     esp_lcd_panel_io_tx_color(io, ST7305_CMD_RAMWR, temp_buffer, lcd_buf_size);
 #elif defined(CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54)
+    // 数据格式转换
+    uint16_t height = is_xy_swapped ? st7305->height : st7305->width;
+
+    uint8_t bitMask[] = {0b00000001, 0b00000010, 0b00000100, 0b00001000, 
+                         0b00010000, 0b00100000, 0b01000000, 0b10000000};
+    bool x_mirror = st7305->madctl_val & ST7305_MADCTL_MY;
+    bool y_mirror = st7305->madctl_val & ST7305_MADCTL_MX;
+
+    if(y_mirror){
+        // byte对应像素的关系较复杂暂未适配
+    }
+
+    for (uint16_t i = 0; i < height / 2; i++) { // 每两行循环处理，由于3byte传输一次，故每两行50byte需向上取3的倍数即51byte舍弃最后一个byte处理
+        for(uint16_t tempIndexTwoByte = 0; tempIndexTwoByte <  st7305 -> width / 8; tempIndexTwoByte++){
+            temp_buffer[i * 51 + tempIndexTwoByte * 2] |= (
+                                                  ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[0]) << 7)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[1]) << 4)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[2]) << 1)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[3]) >> 2)
+                                              ) | (
+                                                  ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[0]) << 6)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[1]) << 3)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[2]) >> 0)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[3]) >> 3)
+                                              );
+            temp_buffer[i * 51 + tempIndexTwoByte * 2 + 1] |= (
+                                                  ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[4]) << 3)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[5]) << 0)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[6]) >> 3)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?25:0)] & bitMask[7]) >> 6)
+                                              ) | (
+                                                  ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[4]) << 2)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[5]) >> 1)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[6]) >> 4)
+                                                | ((lcd_buffer[i * 50 + tempIndexTwoByte + (x_mirror?0:25)] & bitMask[7]) >> 7)
+                                              );
+        }
+    }
     // 设置显示范围和发送数据
     uint8_t caset[] = {0x16, 0x16 + 17 - 1}; // 列像素200 → 列字节数=200/4=50 → 50向上取整为51（3的倍数）→ 51/3=17次写入
     uint8_t raset[] = {0x00, 0x00 + 100 - 1};
     
     esp_lcd_panel_io_tx_param(io, ST7305_CMD_CASET, caset, sizeof(caset));
     esp_lcd_panel_io_tx_param(io, ST7305_CMD_RASET, raset, sizeof(raset));
-    esp_lcd_panel_io_tx_color(io, ST7305_CMD_RAMWR, lcd_buffer, lcd_buf_size);
+    esp_lcd_panel_io_tx_color(io, ST7305_CMD_RAMWR, temp_buffer, lcd_buf_size);
 #endif
     free(lcd_buffer);
     free(temp_buffer);
@@ -364,6 +422,10 @@ static esp_err_t panel_st7305_mirror(esp_lcd_panel_t *panel, bool mirror_x, bool
         st7305->madctl_val &= ~ST7305_MADCTL_MY;
     }
     if (mirror_y) {
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54
+    ESP_LOGE(TAG, "mirror_y is not supported on 1.54'' screen in this lib yet");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
         st7305->madctl_val |= ST7305_MADCTL_MX;
     } else {
         st7305->madctl_val &= ~ST7305_MADCTL_MX;
@@ -379,7 +441,14 @@ static esp_err_t panel_st7305_swap_xy(esp_lcd_panel_t *panel, bool swap_axes)
     st7305_panel_t *st7305 = __containerof(panel, st7305_panel_t, base);
     esp_lcd_panel_io_handle_t io = st7305->io;
     if (swap_axes) {
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_2_9
         st7305->madctl_val |= ST7305_MADCTL_MV;
+#elif defined(CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54)
+        // 1.54''硬件旋转后byte对应像素关系复杂，使用软件旋转
+        ESP_LOGW(TAG, "swap_xy is not supported on 1.54'' screen in this lib yet, using software swap_xy instead which may cause performance drop");
+        st7305->madctl_val &= ~ST7305_MADCTL_MV;
+        is_xy_swapped_soft = true;
+#endif
     } else {
         st7305->madctl_val &= ~ST7305_MADCTL_MV;
     }
