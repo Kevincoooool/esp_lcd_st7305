@@ -54,7 +54,8 @@ typedef struct {
     uint16_t init_cmds_size;
 } st7305_panel_t;
 
-static const st7305_lcd_init_cmd_t st7305_init_cmds[] = {
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_2_9
+static const st7305_lcd_init_cmd_t st7305_init_cmds_2_9_inch[] = {
     {0xD6, (uint8_t[]){0x13, 0x02}, 2, 0},           // NVM Load Control
     {0xD1, (uint8_t[]){0x01}, 1, 0},                 // Booster Enable
     {0xC0, (uint8_t[]){0x08, 0x06}, 2, 0},          // Gate Voltage Setting
@@ -80,6 +81,55 @@ static const st7305_lcd_init_cmd_t st7305_init_cmds[] = {
     {0x39, NULL, 0, 0},                             // Frame rate mode
     {0x29, NULL, 0, 100},                           // Display on
 };
+static const st7305_lcd_init_cmd_t *st7305_init_cmds = st7305_init_cmds_2_9_inch;
+static const size_t st7305_init_cmds_size = sizeof(st7305_init_cmds_2_9_inch) / sizeof(st7305_lcd_init_cmd_t);
+
+#elif defined CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54
+static const st7305_lcd_init_cmd_t st7305_init_cmds_1_54_inch[] = {
+    {0xD6, (uint8_t[]){0x17, 0x02}, 2, 0},           // NVM Load Control
+    {0xD1, (uint8_t[]){0x01}, 1, 0},                 // Booster Enable
+
+    {0xC0, (uint8_t[]){0x12, 0x0a}, 2, 0},          // Gate Voltage Setting
+    {0xC1, (uint8_t[]){0x73, 0x3E, 0x3C, 0x3C}, 4, 0}, // VSHP Setting (4.8V)
+    {0xC2, (uint8_t[]){0x00, 0x21, 0x23, 0x23}, 4, 0}, // VSLP Setting (0.98V)
+    {0xC4, (uint8_t[]){0x32, 0x5C, 0x5A, 0x5A}, 4, 0}, // VSHN Setting (-3.6V)
+    {0xC5, (uint8_t[]){0x32, 0x35, 0x37, 0x37}, 4, 0}, // VSLN Setting (0.22V)
+
+    {0xD8, (uint8_t[]){0x80, 0xE9}, 2, 0},           // OSC Setting: Enable OSC, HPM Frame Rate Max = 51Hz
+    {0xB2, (uint8_t[]){0x12}, 1, 0},                 // Frame Rate Control (HPM=51hz)
+
+    {0xB3, (uint8_t[]){0xE5, 0xF6, 0x17, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x71}, 10, 0}, // Update Period Gate EQ Control in HPM
+    {0xB4, (uint8_t[]){0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45}, 8, 0}, // Update Period Gate EQ Control in LPM
+
+    {0x62, (uint8_t[]){0x32, 0x03, 0x1F}, 3, 0},    // Gate Timing Control
+    {0xB7, (uint8_t[]){0x13}, 1, 0},                // Source EQ Enable
+    {0xB0, (uint8_t[]){0x32}, 1, 0},                // Gate Line Setting: 200 line (50 * 4)
+
+    {0x11, NULL, 0, 120},                           // Sleep out (delay 120ms)
+
+    {0xC9, (uint8_t[]){0x00}, 1, 0},                // Source Voltage Select
+    {0x36, (uint8_t[]){0x48}, 1, 0},                // Memory Data Access Control (MX=1; DO=1)
+    {0x3A, (uint8_t[]){0x11}, 1, 0},                // Data Format Select
+    {0xB9, (uint8_t[]){0x20}, 1, 0},                // Gamma Mode Setting
+    {0xB8, (uint8_t[]){0x29}, 1, 0},                // Panel Setting
+
+    {0x2A, (uint8_t[]){0x16, 0x26}, 2, 0},          // Column Address Setting (0x16,0x26)
+    {0x2B, (uint8_t[]){0x00, 0x63}, 2, 0},          // Row Address Setting (0x00,0x63)
+    {0x35, (uint8_t[]){0x00}, 1, 0},                // TE
+
+    {0xD0, (uint8_t[]){0xFF}, 1, 0},                // Auto power down ON
+    {0x38, NULL, 0, 0},                             // HPM: High Power Mode ON
+
+    {0x29, NULL, 0, 0},                             // Display ON
+    {0x20, NULL, 0, 0},                             // Display Inversion Off
+
+    {0xBB, (uint8_t[]){0x4F}, 1, 0},                // Enable Clear RAM, clear RAM to 0
+};
+static const st7305_lcd_init_cmd_t *st7305_init_cmds = st7305_init_cmds_1_54_inch;
+static const size_t st7305_init_cmds_size = sizeof(st7305_init_cmds_1_54_inch) / sizeof(st7305_lcd_init_cmd_t);
+
+#endif
+
 esp_err_t esp_lcd_new_panel_st7305(const esp_lcd_panel_io_handle_t io, const esp_lcd_panel_dev_config_t *panel_dev_config,
                                    esp_lcd_panel_handle_t *ret_panel)
 {
@@ -173,7 +223,7 @@ static esp_err_t panel_st7305_init(esp_lcd_panel_t *panel)
     esp_lcd_panel_io_handle_t io = st7305->io;
 
     // 发送初始化命令序列
-    for (size_t i = 0; i < sizeof(st7305_init_cmds) / sizeof(st7305_lcd_init_cmd_t); i++) {
+    for (size_t i = 0; i < st7305_init_cmds_size; i++) {
         if (st7305_init_cmds[i].data_bytes > 0) {
             esp_lcd_panel_io_tx_param(io, st7305_init_cmds[i].cmd,
                                     st7305_init_cmds[i].data,
@@ -195,14 +245,24 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
     esp_lcd_panel_io_handle_t io = st7305->io;
 
     // 创建主缓冲区和临时缓冲区
-    uint8_t *lcd_buffer = heap_caps_malloc(384 * 21, MALLOC_CAP_DMA);
-    uint8_t *temp_buffer = heap_caps_malloc(192 * 14 * 3, MALLOC_CAP_DMA);
+    uint16_t pages = (st7305->height) / 8;
+    size_t lcd_buf_size = (size_t)st7305->width * pages;
+
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54
+    lcd_buf_size += 100;
+    // 200/4=50≈51(ST7305芯片3byte写一次，向上取整得51) 一行共51个byte的数据，上下两行共用一行的数据，所以总行数需要除2
+    // 200/2=100 所以共100行，一行51个byte数据，共100*51=5100byte
+#endif
+    uint8_t *lcd_buffer = heap_caps_malloc(lcd_buf_size, MALLOC_CAP_DMA);
+    uint8_t *temp_buffer = heap_caps_malloc(lcd_buf_size, MALLOC_CAP_DMA);
     if (!lcd_buffer || !temp_buffer) {
         if (lcd_buffer) free(lcd_buffer);
         if (temp_buffer) free(temp_buffer);
         return ESP_ERR_NO_MEM;
     }
 
+    memset(lcd_buffer, 0, lcd_buf_size);
+    
     // 判断是否需要交换XY
     bool is_xy_swapped = (st7305->madctl_val & ST7305_MADCTL_MV);
     
@@ -210,18 +270,18 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
     const uint8_t *src = (const uint8_t *)color_data;
     if (!is_xy_swapped) {
         // 正常模式
-        memcpy(lcd_buffer, src, 384 * 21);
+        memcpy(lcd_buffer, src, lcd_buf_size);
     } else {
         // XY交换模式 - 需要重新排列数据
-        for (int y = 0; y < ST7305_HEIGHT; y++) {
-            for (int x = 0; x < ST7305_WIDTH; x++) {
+        for (int y = 0; y < st7305->height; y++) {
+            for (int x = 0; x < st7305->width; x++) {
                 // 计算源数据中的位置
-                uint16_t src_byte_idx = (y >> 3) * ST7305_WIDTH + x;
+                uint16_t src_byte_idx = (y >> 3) * st7305->width + x;
                 uint8_t src_bit_pos = y & 0x07;
                 bool pixel = src[src_byte_idx] & (1 << src_bit_pos);
                 
                 // 计算目标位置（交换x和y）
-                uint16_t dst_byte_idx = (x >> 3) * ST7305_HEIGHT + y;
+                uint16_t dst_byte_idx = (x >> 3) * st7305->height + y;
                 uint8_t dst_bit_pos = x & 0x07;
                 
                 if (pixel) {
@@ -231,54 +291,16 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
         }
     }
 
-    // 判断是否需要交换XY
-    // bool is_xy_swapped = (st7305->madctl_val & ST7305_MADCTL_MV);
-    
-    // // 获取颜色数据
-    // const uint16_t *color_buf = (const uint16_t *)color_data;
-    // uint32_t w = (x_end - x_start + 1);
-
-    // // 循环处理每个像素
-    // for (int y = y_start; y <= y_end; y++) {
-    //     for (int x = x_start; x <= x_end; x++) {
-    //         // 获取颜色值
-    //         uint16_t color = color_buf[(y - y_start) * w + (x - x_start)];
-
-    //         // 计算目标坐标
-    //         int dst_x = x;
-    //         int dst_y = y;
-
-    //         // 交换XY坐标
-    //         if (is_xy_swapped) {
-    //             int tmp = dst_x;
-    //             dst_x = dst_y;
-    //             dst_y = ST7305_WIDTH - 1 - tmp;
-    //         }
-
-    //         // 计算缓冲区位置和位偏移
-    //         uint16_t byte_idx = (dst_y >> 3) * ST7305_WIDTH + dst_x;
-    //         uint8_t bit_pos = dst_y & 0x07;
-
-    //         // 检查索引是否越界
-    //         if (byte_idx < 384 * 21) {
-    //             // 根据颜色值设置像素
-    //             if (color) {
-    //                 lcd_buffer[byte_idx] |= (1 << bit_pos);
-    //             } else {
-    //                 lcd_buffer[byte_idx] &= ~(1 << bit_pos);
-    //             }
-    //         }
-    //     }
-    // }
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_2_9
     // 数据格式转换
     uint16_t k = 0;
-    uint16_t width = is_xy_swapped ? ST7305_HEIGHT : ST7305_WIDTH;
-    uint16_t stride = is_xy_swapped ? ST7305_HEIGHT : ST7305_WIDTH;
-    
+    uint16_t width = is_xy_swapped ? st7305->height : st7305->width;
+    uint16_t stride = is_xy_swapped ? st7305->height : st7305->width;
+
     for (uint16_t i = 0; i < width; i += 2) {
-        for (uint16_t j = 0; j < 21; j += 3) {
+        for (uint16_t j = 0; j < pages; j += 3) {
             for (uint8_t y = 0; y < 3; y++) {
-                if ((j + y) < 21) {
+                if ((j + y) < pages) {
                     uint8_t b1 = lcd_buffer[(j + y) * stride + i];
                     uint8_t b2 = lcd_buffer[(j + y) * stride + i + 1];
                     
@@ -307,8 +329,16 @@ static esp_err_t panel_st7305_draw_bitmap(esp_lcd_panel_t *panel, int x_start, i
     
     esp_lcd_panel_io_tx_param(io, ST7305_CMD_CASET, caset, sizeof(caset));
     esp_lcd_panel_io_tx_param(io, ST7305_CMD_RASET, raset, sizeof(raset));
-    esp_lcd_panel_io_tx_param(io, ST7305_CMD_RAMWR, temp_buffer, 192 * 14 * 3);
-
+    esp_lcd_panel_io_tx_color(io, ST7305_CMD_RAMWR, temp_buffer, lcd_buf_size);
+#elif defined(CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54)
+    // 设置显示范围和发送数据
+    uint8_t caset[] = {0x16, 0x16 + 17 - 1}; // 列像素200 → 列字节数=200/4=50 → 50向上取整为51（3的倍数）→ 51/3=17次写入
+    uint8_t raset[] = {0x00, 0x00 + 100 - 1};
+    
+    esp_lcd_panel_io_tx_param(io, ST7305_CMD_CASET, caset, sizeof(caset));
+    esp_lcd_panel_io_tx_param(io, ST7305_CMD_RASET, raset, sizeof(raset));
+    esp_lcd_panel_io_tx_color(io, ST7305_CMD_RAMWR, lcd_buffer, lcd_buf_size);
+#endif
     free(lcd_buffer);
     free(temp_buffer);
 
