@@ -5,6 +5,7 @@
 #include "esp_lcd_panel_vendor.h"
 #include "hal/spi_ll.h"
 #include "esp_lcd_panel_vendor.h"
+#include "sdkconfig.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,11 +37,22 @@ typedef struct {
 } st7305_vendor_config_t;
 
 // ST7305显示配置参数
-#define ST7305_RESOLUTION_HOR 384  // 水平分辨率
-#define ST7305_RESOLUTION_VER 168  // 垂直分辨率
+// 2.9寸屏幕分辨率
+#define ST7305_RESOLUTION_HOR_2_9 384  // 水平分辨率
+#define ST7305_RESOLUTION_VER_2_9 168  // 垂直分辨率
+// 1.54寸屏幕分辨率
+#define ST7305_RESOLUTION_HOR_1_54 200  // 水平分辨率
+#define ST7305_RESOLUTION_VER_1_54 200  // 垂直分辨率
+
 #define ST7305_BITS_PER_PIXEL 1    // 每像素位数
-#define ST7305_WIDTH     ST7305_RESOLUTION_HOR   // 显示屏宽度
-#define ST7305_HEIGHT    ST7305_RESOLUTION_VER   // 显示屏高度
+
+#ifdef CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_2_9
+    #define ST7305_WIDTH     ST7305_RESOLUTION_HOR_2_9   // 显示屏宽度
+    #define ST7305_HEIGHT    ST7305_RESOLUTION_VER_2_9   // 显示屏高度
+#elif defined(CONFIG_ESP_LCD_ST7305_SCREEN_SIZE_1_54)
+    #define ST7305_WIDTH     ST7305_RESOLUTION_HOR_1_54   // 显示屏宽度
+    #define ST7305_HEIGHT    ST7305_RESOLUTION_VER_1_54   // 显示屏高度
+#endif
 
 // ST7305控制命令
 #define ST7305_CMD_NOP      0x00  // 空操作

@@ -1,0 +1,14 @@
+menu "ESP LCD ST7305"
+
+    choice
+        prompt "Screen size selection"
+        default ESP_LCD_ST7305_SCREEN_SIZE_2_9
+
+        config ESP_LCD_ST7305_SCREEN_SIZE_2_9
+            bool "2.9 inch"
+
+        config ESP_LCD_ST7305_SCREEN_SIZE_1_54
+            bool "1.54 inch"
+    endchoice
+
+endmenu
